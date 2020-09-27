@@ -1,0 +1,780 @@
+#include <stdio.h>
+#include <kernel.h>
+#include <string.h>
+
+#include "oslib/os.h"
+#include "oslib/wimp.h"
+#include "oslib/dragasprite.h"
+
+//#define LOGFILE
+
+static char *app_name="MPxPlayer";
+
+static wimp_w   info_window;
+static wimp_w   work_window;
+static wimp_w   save_window;
+static char     *info_t, *work_t, *save_t;
+
+static wimp_MENU(6) menu;
+static wimp_MENU(3) rate_menu;
+
+static wimp_message_list messages [] ={
+        wimp_NULL_REASON_CODE,
+        wimp_REDRAW_WINDOW_REQUEST,
+        wimp_OPEN_WINDOW_REQUEST,
+        wimp_CLOSE_WINDOW_REQUEST,
+        wimp_MOUSE_CLICK,
+        0
+};
+
+void setIconText(wimp_w w, wimp_i i, char *text);
+
+//static wimp_message_list messages [] ={
+//}
+
+#include <mhead.h>
+#include "soundcode.h"
+
+
+#define MIN_FRAME       4	// smallest MPEG frame
+#define MAX_FRAME	2048	// largest MPEG frame
+#define MAX_FRAME_SAMPLES 4096
+
+#define MIN_TICK  5
+#define MAX_INBUFFER      256000
+
+static char enc[MAX_INBUFFER];
+
+static char outbuf[16384];
+
+static char icobuf[256];
+
+static MPEG_HEAD	dec_hdr;
+static MPEG		dec_mpg;
+
+static struct mpxplayer {
+       int              inbuf_len;          // длина считанного фрагмента
+       int              inbuf_pos;          // позиция в мпег буфере
+       int              downsample;
+       int              freq_limit;
+       int              ini;
+       int              len, fBFull;
+       int              samplen;
+       int              fPlaying;
+       int              maxbuf;
+} mpx;
+
+static FILE             *inf;
+#ifdef LOGFILE
+static FILE             *flog;
+#endif
+
+typedef struct PLAYITEM {
+       char             name[220];
+       struct  PLAYITEM *next;
+} *LPLAYITEM;
+
+static LPLAYITEM playitem = NULL;
+static LPLAYITEM firstitem = NULL;
+static LPLAYITEM lastitem = NULL;
+
+static char *getFileFromList(void)
+{
+       if (playitem) return playitem->name;
+       else return NULL;
+}
+
+static void addFileToList(char *name)
+{
+       if (lastitem) {
+         lastitem->next = (LPLAYITEM) malloc(sizeof(struct PLAYITEM));
+         lastitem = lastitem->next;
+       } else lastitem = (LPLAYITEM) malloc(sizeof(struct PLAYITEM));
+       strncpy(lastitem->name, name, 220);
+       lastitem->next = NULL;
+
+       if (!playitem) playitem = lastitem;
+       if (!firstitem) firstitem = playitem;
+}
+
+/*
+static void removeFileFromList(void)
+{
+       LPLAYITEM temp;
+       if (playitem) {
+          temp = playitem->next;
+          free(playitem);
+          playitem = temp;
+       }
+}
+*/
+
+/*
+ * return 1 if end of playlist detected, else 0
+ */
+
+static int leaveFileFromList(void)
+{
+       if (playitem) {
+         playitem = playitem->next;
+         if (playitem) return 0;
+         else return 1;
+       } else {
+         playitem = firstitem;
+         return 0;
+       }
+}
+
+static void removeAllFilesFromList(void)
+{
+       LPLAYITEM temp;
+
+       playitem = firstitem;
+
+       while (playitem) {
+         temp = playitem->next;
+         free(playitem);
+         playitem = temp;
+       }
+       playitem = lastitem = firstitem = NULL;
+}
+
+static char *playlist_signature = "## MPxPlayer playlist version 1 ##";
+
+static void savePlayList(char *name)
+{
+       LPLAYITEM temp;
+       LPLAYITEM item;
+       FILE *f;
+
+       f = fopen(name, "w");
+       fprintf(f, "%s\n", playlist_signature);
+       item = firstitem;
+       while (item) {
+         fprintf(f, "%s\n", item->name);
+         item = item->next;
+       }
+       fclose(f);
+}
+
+static void loadPlayList(char *name)
+{
+       FILE *f;
+       char buf[256];
+       unsigned char *s;
+
+#ifdef LOGFILE
+       fprintf(flog, "trying open: %s\n", name);
+#endif
+       f = fopen(name, "r");
+       if (!f) return;
+       s = (unsigned char *) fgets(buf, 220, f);
+       s = s + strlen(buf);
+       while (s > (unsigned char *) buf && *s < 32) *s-- = 0;
+#ifdef LOGFILE
+       fprintf(flog, "title: %s\n", buf);
+#endif
+       if (strcmp(buf, playlist_signature)) return;
+#ifdef LOGFILE
+       fprintf(flog, "good title\n");
+#endif
+       while (!feof(f)) {
+         s = (unsigned char *) fgets(buf, 220, f);
+         if (s == NULL) break;
+         s = s + strlen(buf);
+         while (s > (unsigned char *) buf && *s < 33) *s-- = 0;
+#ifdef LOGFILE
+         fprintf(flog, "add file: %s\n", buf);
+#endif
+         if (strlen(buf)>0) addFileToList(buf);
+       }
+
+       fclose(f);
+}
+
+static void mpeg_init_global(void)
+{
+	mpeg_init(&dec_mpg);
+	mpeg_eq_init(&dec_mpg);
+}
+
+static int mpeg_frame_size(int first, const void* data, size_t size)
+{
+	int len;
+
+	len = head_info((void*) data, size, &dec_hdr);
+
+	if(len < size)
+		return -1;
+
+	if(dec_hdr.pad)
+		++len;
+
+	return len;
+}
+
+static int mpeg_frame_decode(int first, const void* data, size_t size, void* pcm)
+{
+	IN_OUT res;
+
+	if(first && !audio_decode_init(&dec_mpg, &dec_hdr, size, mpx.downsample, 0, 0, mpx.freq_limit))
+		return -1;
+        if(first && dec_mpg.cup.decinfo.samprate <= 6000) {
+          if (!audio_decode_init(&dec_mpg, &dec_hdr, size, mpx.downsample-1, 0, 0, mpx.freq_limit))
+                return -1;
+          if(first && dec_mpg.cup.decinfo.samprate <= 6000) {
+            if (!audio_decode_init(&dec_mpg, &dec_hdr, size, mpx.downsample-2, 0, 0, mpx.freq_limit))
+               return -1;
+            }
+        }
+
+	res = audio_decode(&dec_mpg, (void*) data, pcm);
+
+	if(res.in_bytes != size)
+		return -1;
+
+	return res.out_bytes;
+}
+
+static int GetNeedData( void )
+{
+//    printf("get need data\n");
+    mpx.inbuf_len = fread(enc + mpx.inbuf_pos, 1, MAX_INBUFFER - mpx.inbuf_pos, inf);
+    if (mpx.inbuf_len <= 0) return 0;
+    mpx.inbuf_len += mpx.inbuf_pos;
+    mpx.inbuf_pos = 0;
+    return 1;
+}
+
+static int PlayFile( void )
+{
+    int played, freespace, used, total;
+
+    if (mpx.fBFull) {
+       soundcode_readposition(&played, &freespace);
+       if (freespace >= mpx.samplen){
+          soundcode_fill((short *)outbuf, mpx.samplen/(dec_mpg.cup.decinfo.channels), &used, &total);
+          mpx.fBFull = 0;
+       } else return 1;
+    }
+
+    if (mpx.fBFull == 0) {
+       if (mpx.inbuf_pos + 4 >= mpx.inbuf_len) {
+          memcpy(enc, enc + mpx.inbuf_pos, mpx.inbuf_len - mpx.inbuf_pos);
+          mpx.inbuf_pos = mpx.inbuf_len - mpx.inbuf_pos;
+          if (GetNeedData() == 0) return 0;
+       }
+
+       T1:        //Shit!!!!
+       if ((mpx.len = mpeg_frame_size(mpx.ini, enc + mpx.inbuf_pos, MIN_FRAME)) < MIN_FRAME || mpx.len > MAX_FRAME) {
+          int i;
+          // Damn! Trying look for block header!!!
+          for (i = 1; mpx.inbuf_pos + i < mpx.inbuf_len - 4; i++) {
+            unsigned int head = (((unsigned char)enc[mpx.inbuf_pos + i]<<8) |
+                               (unsigned char)enc[mpx.inbuf_pos + i + 1]);
+            if (head == 0xfffb || head == 0xfff3) {
+              mpx.inbuf_pos += i;
+              goto T1;
+            }
+          }
+//          mpx.inbuf_pos += i;
+//          memcpy(enc, enc + mpx.inbuf_pos, mpx.inbuf_len - mpx.inbuf_pos);
+//          mpx.inbuf_pos = mpx.inbuf_len - mpx.inbuf_pos;
+//          if (GetNeedData() == 0) return 0;
+          return 0;
+       }
+
+       if (mpx.inbuf_pos + mpx.len > mpx.inbuf_len) {
+          memcpy(enc, enc + mpx.inbuf_pos, mpx.inbuf_len - mpx.inbuf_pos);
+          mpx.inbuf_pos = mpx.inbuf_len - mpx.inbuf_pos;
+          if (GetNeedData() == 0) return 0;
+       }
+
+       if((mpx.samplen = mpeg_frame_decode(mpx.ini, enc + mpx.inbuf_pos, mpx.len, outbuf)) == -1) {
+          return 0;
+       }
+       if (mpx.ini) {
+          mpx.ini = 0;
+//          printf("rate = %d\n", dec_mpg.cup.decinfo.samprate);
+//          printf("cnah = %d\n", dec_mpg.cup.decinfo.channels);
+          if ((mpx.maxbuf=soundcode_play(dec_mpg.cup.decinfo.samprate, dec_mpg.cup.decinfo.channels)) < 0) {
+//            printf("Can't init sound playback device!\n");
+            return 0;
+          }
+          sprintf(icobuf, "%d Hz, %d channel(s)", dec_mpg.cup.decinfo.samprate, dec_mpg.cup.decinfo.channels);
+          setIconText(work_window, 4, icobuf);
+       }
+
+       mpx.inbuf_pos += mpx.len;
+
+       mpx.samplen /= sizeof(short);
+       if(mpx.samplen > MAX_FRAME_SAMPLES) {
+          return 0;
+       }
+       soundcode_readposition(&played, &freespace);
+       if (freespace >= mpx.samplen){
+           soundcode_fill((short *)outbuf, mpx.samplen/(dec_mpg.cup.decinfo.channels), &used, &total);
+       } else mpx.fBFull = 1;
+    }
+
+    return 1;
+}
+
+static int soundbuffer_empty(void)
+{
+    int played, freespace;
+    if (soundcode_readposition(&played, &freespace) == -1) return 1;
+    if (freespace == mpx.maxbuf) return 1;
+    else return 0;
+}
+
+static void createMenu(int x, int y)
+{
+//  int                   iXeigen;
+//  int                   iYeigen;
+    // init menu structure
+    strncpy(menu.title_data.text, app_name, 12);
+    menu.title_fg = wimp_COLOUR_BLACK;
+    menu.title_bg = wimp_COLOUR_LIGHT_GREY;
+    menu.work_fg = wimp_COLOUR_BLACK;
+    menu.work_bg = wimp_COLOUR_WHITE;
+    menu.width = 160;
+    menu.height = wimp_MENU_ITEM_HEIGHT;
+    menu.gap = wimp_MENU_ITEM_GAP;
+#define ICON_FLAGS ( wimp_ICON_TEXT | wimp_ICON_FILLED | \
+                    ( wimp_COLOUR_BLACK << wimp_ICON_FG_COLOUR_SHIFT ) | \
+                    ( wimp_COLOUR_WHITE << wimp_ICON_BG_COLOUR_SHIFT ) )
+    // Info
+    menu.entries[0].menu_flags = 0;
+    menu.entries[0].sub_menu = (wimp_menu *)info_window;
+    menu.entries[0].icon_flags = ICON_FLAGS;
+    strncpy(menu.entries[0].data.text, "Info", 12);
+    menu.entries[1].menu_flags = 0;
+    menu.entries[1].sub_menu = (wimp_menu *) &rate_menu;
+    menu.entries[1].icon_flags = ICON_FLAGS;
+    strncpy(menu.entries[1].data.text, "Sample Rate", 12);
+    menu.entries[2].menu_flags = 0;
+    menu.entries[2].sub_menu = (wimp_menu *)save_window;
+    menu.entries[2].icon_flags = firstitem?ICON_FLAGS:ICON_FLAGS|wimp_ICON_SHADED;
+    strncpy(menu.entries[2].data.text, "Save List", 12);
+    menu.entries[3].menu_flags = 0;
+    menu.entries[3].sub_menu = NULL;
+    menu.entries[3].icon_flags = firstitem?ICON_FLAGS:ICON_FLAGS|wimp_ICON_SHADED;
+    strncpy(menu.entries[3].data.text, "Remove List", 12);
+    menu.entries[4].menu_flags = wimp_MENU_SEPARATE;
+    menu.entries[4].sub_menu = NULL;
+    menu.entries[4].icon_flags = firstitem?ICON_FLAGS:ICON_FLAGS|wimp_ICON_SHADED;
+    if (playitem) strncpy(menu.entries[4].data.text, "Play Next", 12);
+    else strncpy(menu.entries[4].data.text, "Play First", 12);
+    menu.entries[5].menu_flags = wimp_MENU_LAST;
+    menu.entries[5].sub_menu = NULL;
+    menu.entries[5].icon_flags = ICON_FLAGS;
+    strncpy(menu.entries[5].data.text, "Quit", 12);
+
+    strncpy(rate_menu.title_data.text, "Sample Rate", 12);
+    rate_menu.title_fg = wimp_COLOUR_BLACK;
+    rate_menu.title_bg = wimp_COLOUR_LIGHT_GREY;
+    rate_menu.work_fg = wimp_COLOUR_BLACK;
+    rate_menu.work_bg = wimp_COLOUR_WHITE;
+    rate_menu.width = 160;
+    rate_menu.height = wimp_MENU_ITEM_HEIGHT;
+    rate_menu.gap = wimp_MENU_ITEM_GAP;
+    rate_menu.entries[0].menu_flags = (mpx.downsample == 2)?wimp_MENU_TICKED:0;
+    rate_menu.entries[0].sub_menu = NULL;
+    rate_menu.entries[0].icon_flags = ICON_FLAGS;
+    strncpy(rate_menu.entries[0].data.text, "Quarter", 12);
+    rate_menu.entries[1].menu_flags = (mpx.downsample == 1)?wimp_MENU_TICKED:0;
+    rate_menu.entries[1].sub_menu = NULL;
+    rate_menu.entries[1].icon_flags = ICON_FLAGS;
+    strncpy(rate_menu.entries[1].data.text, "Half", 12);
+    rate_menu.entries[2].menu_flags = (mpx.downsample == 0)?(wimp_MENU_TICKED|wimp_MENU_LAST):wimp_MENU_LAST;
+    rate_menu.entries[2].sub_menu = NULL;
+    rate_menu.entries[2].icon_flags = ICON_FLAGS;
+    strncpy(rate_menu.entries[2].data.text, "Full", 12);
+
+//    os_read_mode_variable (os_CURRENT_MODE, os_MODEVAR_XEIG_FACTOR, &iXeigen);
+//    os_read_mode_variable (os_CURRENT_MODE, os_MODEVAR_YEIG_FACTOR, &iYeigen);
+    x -= 64; y = 96 + wimp_MENU_ITEM_HEIGHT * 6 + wimp_MENU_ITEM_GAP + wimp_MENU_ITEM_SEPARATION;
+
+    wimp_create_menu((wimp_menu *)&menu, x, y);
+}
+
+void setIconText(wimp_w w, wimp_i i, char *text)
+{
+
+  char *textempty = "  ";
+  wimp_icon_state istate;
+  istate.w = w;
+  istate.i = i;
+  wimp_get_icon_state(&istate);
+  strncpy(istate.icon.data.indirected_text.text, text,
+          istate.icon.data.indirected_text.size - 1);
+  istate.icon.data.indirected_text.text[istate.icon.data.indirected_text.size-1] = 0;
+  wimp_set_icon_state(w, i, 0, 0);
+
+}
+
+void copyIconText(wimp_w w, wimp_i i, char *text, int len)
+{
+  wimp_icon_state istate;
+  istate.w = w;
+  istate.i = i;
+  wimp_get_icon_state(&istate);
+  strncpy(text, istate.icon.data.indirected_text.text, len);
+}
+
+static void finishall(void)
+{
+    soundcode_stop();
+    if (inf) fclose(inf);
+    removeAllFilesFromList();
+    if (work_t) free(work_t);
+    if (info_t) free(info_t);
+    if (save_t) free(save_t);
+}
+
+int main(int argc, char *argv[])
+{
+    wimp_version_no     version_out;
+    wimp_t              htask;
+    wimp_icon_create    ico;
+    wimp_block          Block;
+
+    os_error            *e;
+    int                 context;
+    wimp_window         *i_wnd;
+    int                 dused, ddata_used;
+
+    int                 fQuit;
+    os_t                iNow, iNextTime;
+
+/////////////////////////
+
+    mpx.ini = 1;
+    mpx.fBFull = 0;
+    mpx.fPlaying = 0;
+
+    mpx.downsample = 2;
+    mpx.freq_limit = 24000;
+
+    firstitem = lastitem = playitem = NULL;
+
+    if (argc > 1) addFileToList(argv[1]);
+
+#ifdef LOGFILE
+    flog = fopen("<MPxPlayer$Dir>.debug/log", "wb");
+#endif
+/*
+    inf = fopen("tualet/mp3", "rb");
+    if (!inf) {
+      fprintf(flog, "cant open mpeg file!\n");
+      exit(-1);
+    } else fprintf(flog, "succefull open mpeg file!\n");
+
+    mpeg_init_global();
+    inbuf_len = 0;
+    inbuf_pos = 0;
+ */
+    atexit(finishall);
+
+/////////////////////////
+
+    htask = wimp_initialise(wimp_VERSION_RO3, app_name, messages, &version_out);
+
+    ico.w = wimp_ICON_BAR_RIGHT;
+    ico.icon.extent.x0 = 0;
+    ico.icon.extent.y0 = 0;
+    ico.icon.extent.x1 = 68;
+    ico.icon.extent.y1 = 68;
+    ico.icon.flags = 0x3002; //wimp_ICON_SPRITE
+    strcpy((char *)&ico.icon.data.sprite,"!MPxPlayer");
+    wimp_create_icon(&ico);
+
+    e = xwimp_open_template("<MPxPlayer$Dir>.Templates");
+
+    e = xwimp_load_template(NULL, NULL, NULL, wimp_NO_FONTS, "info", 0, &dused, &ddata_used, &context);
+    i_wnd = (wimp_window *) calloc(dused, 1);
+    info_t= (char *) calloc(ddata_used, 1);
+    e = xwimp_load_template(i_wnd, info_t, info_t + ddata_used, wimp_NO_FONTS, "info", 0, &dused, &ddata_used, &context);
+    e = xwimp_create_window(i_wnd, &info_window);
+    free(i_wnd);
+
+    e = xwimp_load_template(NULL, NULL, NULL, wimp_NO_FONTS, "window", 0, &dused, &ddata_used, &context);
+    i_wnd = (wimp_window *) calloc(dused, 1);
+    work_t = (char *) calloc(ddata_used, 1);
+    e = xwimp_load_template(i_wnd, work_t, work_t + ddata_used, wimp_NO_FONTS, "window", 0, &dused, &ddata_used, &context);
+    e = xwimp_create_window(i_wnd, &work_window);
+    free(i_wnd);
+
+    e = xwimp_load_template(NULL, NULL, NULL, wimp_NO_FONTS, "save", 0, &dused, &ddata_used, &context);
+    i_wnd = (wimp_window *) calloc(dused, 1);
+    save_t = (char *) calloc(ddata_used, 1);
+    e = xwimp_load_template(i_wnd, save_t, save_t + ddata_used, wimp_NO_FONTS, "save", 0, &dused, &ddata_used, &context);
+    e = xwimp_create_window(i_wnd, &save_window);
+    free(i_wnd);
+
+    xwimp_close_template();
+
+    fQuit = 0;
+    iNextTime = os_read_monotonic_time() + MIN_TICK;
+    while(!fQuit) {
+      switch (wimp_poll_idle(0, &Block, iNextTime, NULL)) {
+        case wimp_NULL_REASON_CODE: {
+          int i;
+
+          if (!mpx.fPlaying) {
+            if (getFileFromList() && soundbuffer_empty()) {
+              inf = fopen(getFileFromList(), "rb");
+              if (!inf) {
+#ifdef LOGFILE
+                 fprintf(flog, "cant open mpeg file = %s!\n", getFileFromList());
+#endif
+                 leaveFileFromList();
+//                 break;
+              } else {
+#ifdef LOGFILE
+                fprintf(flog, "succefull open mpeg file = %s!\n", getFileFromList());
+#endif
+//              removeFileFromList();
+                {
+                   char *str;
+                   int i;
+                   str = getFileFromList();
+                   i = strlen(str);
+                   while (str[i] != '.' && i > 0) i--;
+                   i++;
+                   setIconText(work_window, 0, str + i);
+                }
+                mpeg_init_global();
+                mpx.inbuf_len = 0;
+                mpx.inbuf_pos = 0;
+                mpx.fPlaying = 1;
+                mpx.ini = 1;
+                mpx.fBFull = 0;
+
+                soundcode_stop();
+              }
+            }
+          } else {
+            for (i = 0; i < 20; i++) {
+                if ((mpx.fPlaying = PlayFile()) == 0) {
+                  fclose(inf);
+                  leaveFileFromList();
+                  setIconText(work_window, 4, "  ");
+                  setIconText(work_window, 0, "  ");
+                  break;
+                }
+                if (mpx.fBFull) break;
+            }
+          }
+
+          iNow = os_read_monotonic_time();
+          iNextTime = iNow + MIN_TICK;
+          break;
+        }
+        case wimp_REDRAW_WINDOW_REQUEST:
+          break;
+        case wimp_OPEN_WINDOW_REQUEST:
+          wimp_open_window((wimp_open *)&Block);
+          break;
+        case wimp_CLOSE_WINDOW_REQUEST:
+          wimp_close_window(Block.close.w);
+          break;
+        case wimp_MENU_SELECTION:
+          switch(Block.selection.items[0]){
+            case 0:
+              break;
+            case 1:
+              switch(Block.selection.items[1]){
+                case 0: mpx.downsample = 2; mpx.freq_limit = 14000; mpx.ini = 1; break;
+                case 1: mpx.downsample = 1; mpx.freq_limit = 24000; mpx.ini = 1; break;
+                case 2: mpx.downsample = 0; mpx.freq_limit = 24000; mpx.ini = 1; break;
+              }
+              soundcode_stop();
+              mpeg_init_global();
+              mpx.fBFull = 0;
+              break;
+            case 2:
+              break;
+            case 3:
+              soundcode_stop();
+              if (inf) fclose(inf);
+              removeAllFilesFromList();
+              setIconText(work_window, 4, "  ");
+              setIconText(work_window, 0, "  ");
+              mpx.fPlaying = 0;
+              break;
+            case 4:
+              soundcode_stop();
+              if (inf) fclose(inf);
+              setIconText(work_window, 4, "  ");
+              setIconText(work_window, 0, "  ");
+              leaveFileFromList();
+              mpx.fPlaying = 0;
+              break;
+            case 5:
+              fQuit = 1;
+              break;
+            }
+            break;
+        case wimp_MOUSE_CLICK:
+          switch ((int)Block.pointer.w) {
+            case (int)wimp_ICON_BAR:
+              switch (Block.pointer.buttons) {
+                case wimp_CLICK_MENU:
+                  createMenu(Block.pointer.pos.x, Block.pointer.pos.y);
+                  break;
+                default: {
+                  wimp_window_state wstate;
+                  wstate.w = work_window;
+                  wimp_get_window_state(&wstate);
+                  wimp_open_window((wimp_open *)&wstate);
+                  }
+                  break;
+              }
+              break;
+            default:
+              if (Block.pointer.w == save_window) {
+                switch ((int)Block.pointer.i) {
+/*
+                  case 0:
+                    xwimp_create_menu((wimp_menu *) -1, 0, 0);
+                    break;
+                  case 3: {
+                    char buf[220];
+                    copyIconText(save_window, 0, buf, 220);
+                    savePlayList(buf);
+                    xwimp_create_menu((wimp_menu *) -1, 0, 0);
+                    }
+                    break;
+ */
+                  case 1:
+                    switch (Block.pointer.buttons) {
+                        case wimp_CLICK_ADJUST:
+                        case wimp_CLICK_SELECT:
+                          {
+                           wimp_window_state wstate;
+                           wimp_icon_state istate;
+                           wimp_drag drag;
+                           int left, top;
+                           int sizex, sizey, eigx, eigy;
+
+                           wstate.w = save_window;
+                           istate.w = save_window;
+                           istate.i = 1;
+                           xwimp_get_window_state(&wstate);
+                           xwimp_get_icon_state(&istate);
+                           left = wstate.visible.x0 - wstate.xscroll;
+                           top  = wstate.visible.y1 - wstate.yscroll;
+
+                           drag.w = save_window;
+                           drag.type = wimp_DRAG_USER_FIXED;
+                           drag.initial.x0 = left + istate.icon.extent.x0;
+                           drag.initial.x1 = left + istate.icon.extent.x1;
+                           drag.initial.y0 = top  + istate.icon.extent.y0;
+                           drag.initial.y1 = top  + istate.icon.extent.y1;
+
+                           xos_read_mode_variable(os_CURRENT_MODE, os_MODEVAR_XEIG_FACTOR, &eigx, NULL);
+                           xos_read_mode_variable(os_CURRENT_MODE, os_MODEVAR_YEIG_FACTOR, &eigy, NULL);
+                           xos_read_mode_variable(os_CURRENT_MODE, os_MODEVAR_XWIND_LIMIT, &sizex, NULL);
+                           xos_read_mode_variable(os_CURRENT_MODE, os_MODEVAR_YWIND_LIMIT, &sizey, NULL);
+                           sizex = (sizex + 1) << eigx;
+                           sizey = (sizey + 1) << eigy;
+                           drag.bbox.x0 = 0;
+                           drag.bbox.y0 = 0;
+                           drag.bbox.x1 = sizex;
+                           drag.bbox.y1 = sizey;
+
+                             xdragasprite_start(dragasprite_HPOS_CENTRE | dragasprite_VPOS_CENTRE |
+                                                dragasprite_BOUND_POINTER | dragasprite_DROP_SHADOW,
+                                                istate.icon.data.indirected_sprite.area, "file_fff", &drag.initial, &drag.bbox);
+//                           xwimp_drag_box(&drag);
+                          }
+                          break;
+                        default:
+                          break;
+                    }
+                    break;
+                  default:
+                    break;
+                }
+              }
+              break;
+          }
+          break;
+        case wimp_USER_DRAG_BOX: {
+          wimp_pointer ptr;
+          wimp_message msg;
+          xwimp_get_pointer_info(&ptr);
+          msg.size = sizeof(wimp_message);
+          msg.sender = (wimp_t) ptr.w;
+          msg.your_ref = 0;
+          msg.action = message_DATA_SAVE;
+          msg.data.data_xfer.w = ptr.w;
+          msg.data.data_xfer.i = ptr.i;
+          msg.data.data_xfer.pos = ptr.pos;
+          msg.data.data_xfer.est_size = 0;
+          msg.data.data_xfer.file_type = 0xfff;
+
+          copyIconText(save_window, 0, msg.data.data_xfer.file_name, 220);
+
+          xwimp_send_message(wimp_USER_MESSAGE, &msg, (wimp_t ) ptr.w);
+          xdragasprite_stop();
+          xwimp_create_menu((wimp_menu *) -1, 0, 0);
+
+          }
+          break;
+        case wimp_USER_MESSAGE:
+        case wimp_USER_MESSAGE_RECORDED:
+          switch(Block.message.action){
+            case message_QUIT:
+              fQuit = 1;
+              break;
+            case message_DATA_LOAD: {
+#ifdef LOGFILE
+              fprintf(flog, "data_load-> %s\n", Block.message.data.data_xfer.file_name);
+#endif
+
+              if (Block.message.data.data_xfer.file_type != 0xfff)
+                 addFileToList(Block.message.data.data_xfer.file_name);
+              else {
+                 soundcode_stop();
+                 if (inf) fclose(inf);
+                 removeAllFilesFromList();
+                 setIconText(work_window, 4, "  ");
+                 setIconText(work_window, 0, "  ");
+                 mpx.fPlaying = 0;
+                 loadPlayList(Block.message.data.data_xfer.file_name);
+              }
+              break;
+            }
+            case message_DATA_OPEN: {
+#ifdef LOGFILE
+              fprintf(flog, "data_open-> %s\n", Block.message.data.data_xfer.file_name);
+#endif
+              if (Block.message.data.data_xfer.file_type != 0x1ad) break;
+              addFileToList(Block.message.data.data_xfer.file_name);
+              Block.message.your_ref = Block.message.my_ref;
+              Block.message.action = message_DATA_LOAD_ACK;
+              wimp_send_message(wimp_USER_MESSAGE, &Block.message, Block.message.sender);
+              break;
+            }
+
+            case message_DATA_SAVE_ACK: {
+#ifdef LOGFILE
+              fprintf(flog, "data_save_ack-> %s\n", Block.message.data.data_xfer.file_name);
+#endif
+              savePlayList(Block.message.data.data_xfer.file_name);
+//              setIconText(save_window, 1, Block.message.data.data_xfer.file_name);
+              break;
+            }
+
+          }
+          break;
+        default:
+          break;
+      }
+    }
+
+    wimp_close_down(htask);
+}

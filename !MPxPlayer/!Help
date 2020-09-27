@@ -1,0 +1,81 @@
+MPxPlayer version 0.2
+---------------------
+Very fast MPEG1/2/2.5 layers 1,2,3 (and XING extension) Player for
+eQ ARM 7500FE design.
+It should also work happilly on RiscStation 7500, Mico and A7000+.
+
+It needs SharedCLibrary (any version should be OK) in order to run.
+
+Use:
+----
+Just click on one MP3, MP1 or MP2 file (Type &1AD).
+It support drag and drop for one or more files.
+You can drop files even if song playing...
+
+From menu you can switch in 11025/22050/44100 resolution "on the fly".
+You can also remove all dropped files from internal playlist.
+You can finally stop current mpeg and playing next mpeg.
+You can save internal playlist (as Text file), and later drag for playing.
+
+Tests:
+------
+Test made with standard R7500 board from Simtec with ARM7500FE@56MHz and 50ns memory (even if ours is 60ns). File used: Dreamer from Supertramp encoded at 128 kbps in 44.1 Khz.
+
+With 11025Hz 16bit stereo output, it should be ok up to about 89600ko/sec video modes. It is working well under the following resolutions:
+640x480x32@71
+800x600x16@72
+1024x768x8@70
+1280x1024x8@70
+So understand that it works on every usable resolutions (if ones with "slow" desktop).
+
+With 22050Hz 16bit stereo output, it should be ok up to about 56400ko/sec video modes. It is working well under the following resolutions:
+640x480x16@71
+800x600x16@60
+1024x768x8@70
+1280x1024x4@70
+
+With 44100Hz 16bit mono output, it playing in any resolutions.
+
+44100Hz stereo mode doesn't work for now (but is it really usefull anyway since 22050 mode is really perfect ?). Perhaps it will work with future ARM7500 computers (64 MHz and faster memory).
+
+VBR and 192kbps files will need smaller resolutions.
+
+Tricks:
+-------
+You can make modes with smaller frame rate (for example 1024x768@65), it will help a lot with complex files (the key problem is bandwith, not really processing power).
+
+Put that on your mimemap file ($.!Boot.Resources.!Internet.files.MimeMap)
+audio/mpeg			MPEG		1ad	.mp3 .MP3 .mp1 .MP1 .mp2 .MP2
+Press F12 and Type: ReadMimeMap... It's usefull for CD-Rom.
+
+Legal:
+------
+MPxPlayer is placed under GNU/GPL license...
+
+MPxPlayer is based on:
+  FreeAMP and LibFreeAMP (originally, XING Audio MPEG decoder :-)
+
+History:
+--------
+24 oct 2001 - Save/Load playlist (v.0.2)
+18 oct 2001 - For files encoded with freq <= 24KHz, lower samplerate is "Half".
+16 oct 2001 - Fixed bug with MS RIFF MPEG2 files.
+12 oct 2001 - First version (v.0.1) !
+
+To compile:
+-----------
+Use "amu".
+You'll need oslib and Acorn C in order to compile this sotware.
+Included Absolute files are squeezed so don't worry about the size of yours...
+
+We now compile our software with a traditional version of Acorn C. To make it compile with 32 bit libraries but without using SharedCLibrary 5.17 we use a special trick:
+
+Just make an up to date version of Acorn C with 32 bit libraries. Then move the "Libraries.clib" directory to "Libraries.c32" and copy the old "clib" directory (from original Acorn C) to "Libraries.clib". Add this line to !SetPaths "!Boot" and "!Run" files:
+Set C32$Path <Obey$Dir>.^.Libraries.c32.
+
+Then to compile with 32 bit libraries go to "Makefile". Change all "C:" to "C32:" and add "-APCS 3/32bit/fpe3" to the CCflags. Now you can compile software for 32 bit computers and for a very old SharedCLibrary with one compiler !
+
+Future:
+-------
+Real "switch resolution on the fly"...
+Please write to us about all bugs in MPxPlayer...

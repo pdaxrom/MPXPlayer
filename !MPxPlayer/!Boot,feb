@@ -1,0 +1,5 @@
+|
+Set MPxPlayer$Dir <Obey$Dir>
+IconSprites <MPxPlayer$Dir>.!Sprites
+Set File$Type_1AD AMPEG
+Set Alias$@RunType_1AD /<Obey$Dir>.!Run %%*0

@@ -1,0 +1,282 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "oslib/os.h"
+#include "oslib/osmodule.h"
+#include "oslib/sound.h"
+#include "soundcode.h"
+
+static int sound_claimed = 0;
+static int *sound_rma = NULL;
+static int sound_written = 0;
+static int sound_previoussamplerate;
+static soundcode_memory *sound_parameters;
+static os_dynamic_area_no sound_area = 0;
+
+static int soundcode[SOUNDCODE_SIZE] = {
+                             0x00000030, 0x00000000, 0x00000000, 0x00000000,
+                             0x00000000, 0x00000000, 0x00000100, 0x00000000,
+                             0x00000000, 0x00000000, 0x00000000, 0x00000000,
+                             0xE92D5C00, 0xE1A0B000, 0xE50F3014, 0xE59B6008,
+                             0xE59B700C, 0xE59B8004, 0xE59B9000, 0xE59B501C,
+                             0xE3150001, 0x1B000040, 0xE0575006, 0x0A00003E,
+                             0xB0855008, 0xE0423001, 0xE1A03123, 0xE59BA010,
+                             0xE35A0002, 0x0A00001C, 0xE1550003, 0xB1A03005,
+                             0xE1A0A003, 0xE7990086, 0xE1A00800, 0xE1800820,
+                             0xE4810004, 0xE2866001, 0xE1560008, 0xA3A06000,
+                             0xE25AA001, 0xCAFFFFF6, 0xE51F0084, 0xE2000007,
+                             0xE3500001, 0x0A000004, 0xE3A00000, 0xE1510002,
+                             0x0A000001, 0xE4810004, 0xEAFFFFFB, 0xE59B001C,
+                             0xE3100002, 0x18FD9C00, 0xE59B0018, 0xE0800003,
+                             0xE58B0018, 0xE58B6008, 0xE8FD9C00, 0xE1A050A5,
+                             0xE1550003, 0xB1A03005, 0xE1A0A003, 0xE7990086,
+                             0xE4810004, 0xE2866002, 0xE1560008, 0xA3A06000,
+                             0xE25AA001, 0xCAFFFFF8, 0xE51F00F4, 0xE2000007,
+                             0xE3500001, 0x0A000004, 0xE3A00000, 0xE1510002,
+                             0x0A000001, 0xE4810004, 0xEAFFFFFB, 0xE59B001C,
+                             0xE3100002, 0x18FD9C00, 0xE59B0018, 0xE0800003,
+                             0xE58B0018, 0xE58B6008, 0xE8FD9C00, 0xE51F0138,
+                             0xE2000007, 0xE3500001, 0x08FD9C00, 0xE3A00000,
+                             0xE4810004, 0xE1510002, 0xBAFFFFFC, 0xE8FD9C00,
+                             0x00000000, 0x00000000, 0x00000000, 0x00000000
+                          };
+
+/*
+int main(int argc, char *argv[]) {
+
+  FILE *fh;
+  int total, read, freespace, used, played, channels;
+  short buffer[20000];
+
+  fh = fopen("Sample", "rb");
+  if (fh == NULL) {
+    printf("cant open sample file!\n");
+    return -1;
+  }
+  channels = 2;
+  if (soundcode_play(44100, channels) < 0)  return 0;
+  total = 0x7f000000;
+  do {
+    // get free space
+    soundcode_readposition(&played, &freespace);
+    if (freespace > 1000) {
+      // don't bother if there's less than 1000
+      // don't read more than the buffer can hold...
+      if (freespace > 20000/channels)   freespace = 20000/channels;
+      // read the data
+      read = fread(buffer, 2*channels, freespace, fh);
+      printf("channels %d -- freespace %d --> %d\n", channels, freespace, read);
+      // if we got less than we wanted, we're at the end of the file
+      if (read < freespace)
+        // fill the buffer and read the total no. of samples we've used
+        soundcode_fill(buffer, read, &used, &total);
+      else
+        soundcode_fill(buffer, read, &used, NULL);
+    }
+  } while (played < total);
+
+  soundcode_stop();
+  return 0;
+}
+ */
+
+// soundcode_stop             stop playback
+void soundcode_stop() {
+
+  void *oldcode, *oldworkspace;
+
+  if ((!sound_rma) || (!sound_claimed)) return;
+  sound_claimed = 0;
+
+  // read current handler
+  xsound_linear_handler(0, NULL, NULL, &oldcode, &oldworkspace);
+  if ((oldcode      == sound_parameters->address) &&
+      (oldworkspace == sound_parameters->arg)) {
+    xsound_linear_handler(1, NULL, NULL, NULL, NULL);
+    xsoundsamplerate_select(sound_previoussamplerate, NULL, NULL);
+  }
+
+  // release memory
+  xosmodule_free((byte *)sound_rma);
+  xosdynamicarea_delete(sound_area);
+}
+
+// soundcode_play             start playback
+// returns buffersize (in 16 bit samples/channel) for OK or -1 for error
+// on entry
+// freq                       playback frequency
+// chans                      no. of channels to play (1 or 2)
+int soundcode_play(int freq, int chans) {
+
+  int rateindex, i, nsr, prevrate, sr, rate, buffersize;
+  short *bufferstart;
+
+  if (freq < 4000 || freq > 50000 || chans < 1 || chans > 2)  return -1;
+  if (sound_claimed)  return -1;
+
+  // make sure 16 bit sound is supported
+  if (xsoundsamplerate_read_count(&nsr))  return -1;
+
+  // find the best playback-frequency
+  rateindex = -1;
+  xsoundsamplerate_lookup(1, &prevrate);
+  prevrate = prevrate >> 10;
+
+  for (sr = 2; sr <= nsr; sr++) {
+    xsoundsamplerate_lookup(sr, &rate);
+    rate = rate >> 10;
+    if ((rateindex == -1) && (prevrate < freq) && (rate >= freq))
+        rateindex = sr;
+    prevrate = rate;
+  }
+  if (rateindex == -1)  return -1;
+
+  // get RMA block for buffer-fill-code
+  sound_rma = NULL;
+  if (xosmodule_alloc(4*SOUNDCODE_SIZE, (void **)&sound_rma))  return -1;
+  // copy buffer-fill-code
+  for (i = 0; i < SOUNDCODE_SIZE; i++)  sound_rma[i] = soundcode[i];
+  sound_rma[SOUNDCODE_FILLCODE] += (int)sound_rma;
+
+  sound_parameters = (soundcode_memory *)&sound_rma[SOUNDCODE_PARAMETERS];
+
+  // get ~0.7 seconds buffer
+  // sash 10*
+  buffersize = (10*10*2*chans*freq/10) & ~4095; // was 7*2*...
+  if (xosdynamicarea_create((os_dynamic_area_no)-1, buffersize,
+                             (byte *)-1, 128, buffersize,
+                             NULL, NULL, "Sound buffer",
+                             &sound_area, (byte **)&bufferstart, NULL))  {
+    xosmodule_free((byte *)sound_rma);
+    return -1;
+  }
+  buffersize /= 2;  // convert from bytes to samples
+
+  // init the parameter-block passed to the buffer-fill-code
+  sound_parameters->startaddress = bufferstart;
+  sound_parameters->buffersize = buffersize;
+  sound_parameters->readpos = sound_parameters->writepos = 0;
+  sound_parameters->channels = chans;
+  sound_parameters->flags = 0;
+  // select samplerate
+  xsoundsamplerate_read_current(&sound_previoussamplerate, NULL);
+  xsoundsamplerate_select(rateindex, NULL, NULL);
+
+  sound_parameters->address = (void *)sound_rma[SOUNDCODE_FILLCODE];
+  sound_parameters->arg = sound_parameters;
+
+  xsound_linear_handler(1, sound_parameters->address, sound_parameters->arg, NULL, NULL);
+  sound_claimed = 1;
+  sound_written = 0;
+
+  return buffersize/chans;
+}
+
+// soundcode_fill             fill the sample-buffer
+// returns 0 for OK or -1 for error
+// on entry
+// buffer                     pointer to samples
+// samples                    no. of samples/channel in the buffer
+// on exit
+// used                       no. of samples/channel read from the buffer
+// given                      total no. of samples/channel written since start
+int soundcode_fill(short *buffer, int samples, int *used, int *given) {
+
+  int n, chns, firstpart, secondpart;
+
+  if ((!sound_rma) || (!sound_claimed))  return -1;
+  *used = 0;
+  if (given)   *given = sound_written;
+  if (samples <= 0)                      return 0;
+
+  chns = sound_parameters->channels;
+
+  // no. of samples/channel waiting to be filled
+  n = sound_parameters->readpos - sound_parameters->writepos;
+  if (n <= 0)  n += sound_parameters->buffersize;
+  n = n/chns;
+  if (chns == 2)   n &= ~1;
+
+  if (n < 4) {      // don't bother
+    *used = 0;
+    return 0;
+  }
+
+  n -= 2;           // never fill completely
+  if (n > samples)  n = samples;
+
+  firstpart = (sound_parameters->buffersize - sound_parameters->writepos)/chns;
+  if (firstpart > n)  firstpart = n;
+  memcpy(sound_parameters->startaddress + sound_parameters->writepos,
+         buffer,
+         2*chns*firstpart);
+  sound_parameters->writepos += chns*firstpart;
+  if (sound_parameters->writepos == sound_parameters->buffersize)
+    sound_parameters->writepos = 0;
+
+  secondpart = n - firstpart;
+  if (secondpart > 0) {
+    memcpy(sound_parameters->startaddress, buffer + chns*firstpart, 2*chns*secondpart);
+    sound_parameters->writepos = chns*secondpart;
+  }
+
+  *used = n;
+  sound_written += n;
+  if (given)  *given = sound_written;
+
+  return 0;
+}
+
+// soundcode_readposition     read info about playback
+// returns 0 for OK or -1 for error
+// on exit
+// played                     no. of samples/channel played
+// freespace                  amount of free space (samples/channel) in buffer
+int soundcode_readposition(int *played, int *freespace) {
+
+  if ((!sound_rma) || (!sound_claimed))  return -1;
+
+  if (played)
+    *played = sound_parameters->playedsamples;
+
+  if (freespace) {
+    int n;
+
+    n = sound_parameters->readpos - sound_parameters->writepos;
+    if (n <= 0)  n += sound_parameters->buffersize;
+    *freespace = n/sound_parameters->channels;
+  }
+
+  return 0;
+}
+
+// soundcode_control          read/write buffer/flags
+// on entry
+// newflags                   new flags or -1
+//                            bit 0 set   pause playback
+//                            bit 0 clear continue playback
+//                            bit 1 set   repeated playback
+//                            bit 1 clear normal playback
+// newreadpos                 new read pos or -1
+// newwritepos                new write pos or -1
+// on exit
+// oldflags                   old flags
+// oldreadpos                 old read pos
+// oldwritepos                old write pos
+// bufferstart                pointer to start of buffer
+// buffersize                 size of buffer (in bytes)
+int soundcode_control(int newflags, int newreadpos, int newwritepos, int *oldflags, int *oldreadpos, int *oldwritepos, short **bufferstart, int *buffersize) {
+
+  if ((!sound_rma) || (!sound_claimed))  return -1;
+
+  if (oldflags)            *oldflags = sound_parameters->flags;
+  if (oldreadpos)          *oldreadpos = sound_parameters->readpos;
+  if (oldwritepos)         *oldwritepos = sound_parameters->writepos;
+  if (bufferstart)         *bufferstart = sound_parameters->startaddress;
+  if (buffersize)          *buffersize = sound_parameters->buffersize*2;
+  if (newflags != -1)      sound_parameters->flags = newflags;
+  if (newreadpos != -1)    sound_parameters->readpos = newreadpos;
+  if (newwritepos != -1)   sound_parameters->writepos = newwritepos;
+
+  return 0;
+}

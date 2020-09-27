@@ -1,0 +1,28 @@
+# Project:   MPxPlayer
+
+# Toolflags:
+CC           = cc
+CCflags      = -Otime -fah -c -depend !Depend -throwback -IC: -IOSLib: -I@.^.libFreeAMP
+Linkflags    = -o @.^.^.$@
+
+Files        = o.main o.soundcode
+Libs         = C:o.Stubs OSLib:o.OSLib32 @.^.libFreeAMP.o.libFreeAMP
+
+# Final targets:
+MPxPlayer:      $(Files) $(Libs)
+           link $(Linkflags) $(Files) $(Libs)
+
+# Clean:
+clean:
+	   IfThere o Then wipe o FR~C~V
+	   CDir o
+	   remove @.^.^.MPxPlayer
+
+#Rule patterns:
+VPATH        = @ @.^
+.SUFFIXES:    .o .c
+.c.o:;        $(CC) $(CCFlags) -o $@ $<
+
+# Dynamic dependencies:
+o.soundcode: c.soundcode OSLib:h.os OSLib:oslib.h.types OSLib:h.osmodule OSLib:h.sound h.soundcode
+o.main: c.main C:h.kernel OSLib:oslib.h.os OSLib:oslib.h.types OSLib:oslib.h.oscore32 OSLib:oslib.h.osf32 OSLib:oslib.h.wimp OSLib:oslib.h.osspriteop OSLib:oslib.h.font OSLib:oslib.h.wimp32 OSLib:oslib.h.dragasprite ^.libFreeAMP.h.mhead ^.libFreeAMP.h.L3 ^.libFreeAMP.h.itype h.soundcode

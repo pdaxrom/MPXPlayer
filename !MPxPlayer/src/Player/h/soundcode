@@ -1,0 +1,28 @@
+#define SOUNDCODE_FILLCODE              0
+#define SOUNDCODE_PARAMETERS            1
+
+//extern "C" {
+int soundcode_play(int freq, int channels);
+void soundcode_stop(void);
+int soundcode_readposition(int *played, int *freespace);
+int soundcode_fill(short *buffer, int samples, int *used, int *total);
+int soundcode_control(int newflags, int newreadpos, int newwritepos, int *oldflags, int *oldreadpos, int *oldwritepos, short **bufferstart, int *size);
+//}
+
+typedef struct soundcode_memory {
+  short *startaddress;
+  int buffersize;
+  int readpos;
+  int writepos;
+  int channels;
+  int amplitude;
+  int playedsamples;
+  int flags;
+  void *address;
+  void *arg;
+} soundcode_memory;
+
+#define SOUNDCODEFLAGS_PAUSE            1
+#define SOUNDCODEFLAGS_REPEAT           2
+
+#define SOUNDCODE_SIZE 400 //100
