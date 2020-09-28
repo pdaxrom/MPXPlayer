@@ -18,7 +18,7 @@ typedef struct soundcode_memory {
   int amplitude;
   int playedsamples;
   int flags;
-  void *address;
+  asm_routine address;
   void *arg;
 } soundcode_memory;
 

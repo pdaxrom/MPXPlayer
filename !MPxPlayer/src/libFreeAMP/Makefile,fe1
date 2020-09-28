@@ -33,21 +33,20 @@ VPATH        = @ @.^
 
 # Dynamic dependencies:
 o.dec8: c.dec8 h.L3 h.mhead h.L3 h.itype
-o.cdct: c.cdct h.L3 h.mhead h.L3 h.itype
-o.cdct: c.cdct h.L3 h.mhead h.L3 h.itype
 o.cupl3: c.cupl3 h.L3 h.mhead h.L3 h.itype h.jdw h.protos
 o.hwin: c.hwin h.L3 h.mhead h.L3 h.itype
-o.iup: c.iup h.L3 h.mhead h.L3 h.itype h.jdw c.iupini c.iupL1
 o.l3init: c.l3init h.L3 h.mhead h.L3 h.itype h.protos
 o.msis: c.msis h.L3 h.mhead h.L3 h.itype
 o.csbt: c.csbt h.L3 h.mhead h.L3 h.itype c.csbtb c.csbtL3
 o.cwinm: c.cwinm h.tableawd c.cwin h.mhead h.L3 h.itype c.cwinb
-o.icdct: c.icdct h.itype
 o.mdct: c.mdct
 o.uph: c.uph h.L3 h.mhead h.L3 h.itype h.htable
-o.cup: c.cup h.L3 h.mhead h.L3 h.itype c.cupini c.cupL1
 o.isbt: c.isbt h.itype h.tableawd c.isbtb
 o.l3dq: c.l3dq h.L3 h.mhead h.L3 h.itype h.protos
 o.mhead: c.mhead h.L3 h.mhead h.L3 h.itype
 o.upsf: c.upsf h.L3 h.mhead h.L3 h.itype
+o.cdct: c.cdct h.L3 h.mhead h.L3 h.itype
+o.iup: c.iup h.L3 h.mhead h.L3 h.itype h.jdw c.iupini c.iupL1
+o.icdct: c.icdct h.itype
+o.cup: c.cup h.L3 h.mhead h.L3 h.itype c.cupini c.cupL1
 o.iwinm: c.iwinm h.itype c.iwinQ c.iwinbQ

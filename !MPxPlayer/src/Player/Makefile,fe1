@@ -24,5 +24,5 @@ VPATH        = @ @.^
 .c.o:;        $(CC) $(CCFlags) -o $@ $<
 
 # Dynamic dependencies:
-o.soundcode: c.soundcode OSLib:h.os OSLib:oslib.h.types OSLib:h.osmodule OSLib:h.sound h.soundcode
+o.soundcode: c.soundcode OSLib:oslib.h.os OSLib:oslib.h.types OSLib:oslib.h.oscore32 OSLib:oslib.h.osf32 OSLib:oslib.h.osmodule OSLib:oslib.h.sound h.soundcode
 o.main: c.main C:h.kernel OSLib:oslib.h.os OSLib:oslib.h.types OSLib:oslib.h.oscore32 OSLib:oslib.h.osf32 OSLib:oslib.h.wimp OSLib:oslib.h.osspriteop OSLib:oslib.h.font OSLib:oslib.h.wimp32 OSLib:oslib.h.dragasprite ^.libFreeAMP.h.mhead ^.libFreeAMP.h.L3 ^.libFreeAMP.h.itype h.soundcode
