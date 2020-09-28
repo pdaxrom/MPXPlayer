@@ -1,3 +1,3 @@
 Old audio mpeg player for RISC OS based on FreeAmp (Xing MPEG decoder). Optimized for CL-PS7500FE with FPU.
 
-The original name was StupidPlay, but was later renamed to MPxPlayer and the mpeg123 decoder library was replaced by FreeAmp.
+The original name was StupidPlayer, but was later renamed to MPxPlayer and the mpeg123 decoder library was replaced by FreeAmp.
