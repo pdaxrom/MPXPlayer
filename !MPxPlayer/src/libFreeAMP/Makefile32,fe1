@@ -2,7 +2,7 @@
 
 # Toolflags:
 CC           = cc
-CCflags      = -c -Otime -depend !Depend -throwback -IC:
+CCflags      = -c -Otime -APCS 3/32bit/fpe3 -depend !Depend -throwback -IC32:
 
 Files	= cdct.o cupl3.o \
 	hwin.o iup.o \
@@ -32,22 +32,22 @@ VPATH        = @ @.^
 .c.o:;        $(CC) $(CCFlags) -o $@ $<
 
 # Dynamic dependencies:
-o.dec8: c.dec8 h.L3 h.mhead h.L3 h.itype
-o.l3init: c.l3init h.L3 h.mhead h.L3 h.itype h.protos
 o.msis: c.msis h.L3 h.mhead h.L3 h.itype
-o.csbt: c.csbt h.L3 h.mhead h.L3 h.itype c.csbtb c.csbtL3
 o.uph: c.uph h.L3 h.mhead h.L3 h.itype h.htable
 o.l3dq: c.l3dq h.L3 h.mhead h.L3 h.itype h.protos
 o.mhead: c.mhead h.L3 h.mhead h.L3 h.itype
-o.upsf: c.upsf h.L3 h.mhead h.L3 h.itype
 o.cdct: c.cdct h.L3 h.mhead h.L3 h.itype
 o.cdct: c.cdct h.L3 h.mhead h.L3 h.itype
 o.cupl3: c.cupl3 h.L3 h.mhead h.L3 h.itype h.jdw h.protos
 o.hwin: c.hwin h.L3 h.mhead h.L3 h.itype
-o.iup: c.iup h.L3 h.mhead h.L3 h.itype h.jdw c.iupini c.iupL1
-o.cwinm: c.cwinm h.tableawd c.cwin h.mhead h.L3 h.itype c.cwinb
 o.icdct: c.icdct h.itype
 o.mdct: c.mdct
+o.l3init: c.l3init h.L3 h.mhead h.L3 h.itype h.protos
+o.cwinm: c.cwinm h.tableawd c.cwin h.mhead h.L3 h.itype c.cwinb
+o.iup: c.iup h.L3 h.mhead h.L3 h.itype h.jdw c.iupini c.iupL1
+o.csbt: c.csbt h.L3 h.mhead h.L3 h.itype c.csbtb c.csbtL3
 o.cup: c.cup h.L3 h.mhead h.L3 h.itype c.cupini c.cupL1
+o.dec8: c.dec8 h.L3 h.mhead h.L3 h.itype
 o.isbt: c.isbt h.itype h.tableawd c.isbtb
+o.upsf: c.upsf h.L3 h.mhead h.L3 h.itype
 o.iwinm: c.iwinm h.itype c.iwinQ c.iwinbQ

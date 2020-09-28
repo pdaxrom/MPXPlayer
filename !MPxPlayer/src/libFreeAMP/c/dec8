@@ -3,7 +3,7 @@
  */
 
 /*____________________________________________________________________________
-	
+
 	FreeAmp - The Free MP3 Player
 
         MP3 Decoder originally Copyright (C) 1995-1997 Xing Technology
@@ -24,7 +24,7 @@
 	You should have received a copy of the GNU General Public License
 	along with this program; if not, write to the Free Software
 	Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-	
+
 	*Id: dec8.c,v 1.6 2000/10/13 14:29:02 ijr Exp $
 ____________________________________________________________________________*/
 
@@ -42,7 +42,7 @@ mod 6/29/95  bugfix in u-law table
 
 mod 11/15/95 for Layer I
 
-mod 1/7/97 minor mods for warnings  
+mod 1/7/97 minor mods for warnings
 
 ******************************************************************/
 /*****************************************************************
@@ -103,6 +103,7 @@ IN_OUT structure returns:
 #include <stdio.h>
 #include <float.h>
 #include <math.h>
+#include <string.h>
 #include "L3.h"
 #include "mhead.h"		/* mpeg header structure */
 

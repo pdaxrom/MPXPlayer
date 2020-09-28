@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <kernel.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "oslib/os.h"
 #include "oslib/wimp.h"
@@ -19,12 +20,12 @@ static wimp_MENU(6) menu;
 static wimp_MENU(3) rate_menu;
 
 static wimp_message_list messages [] ={
-        wimp_NULL_REASON_CODE,
-        wimp_REDRAW_WINDOW_REQUEST,
-        wimp_OPEN_WINDOW_REQUEST,
-        wimp_CLOSE_WINDOW_REQUEST,
-        wimp_MOUSE_CLICK,
-        0
+        { wimp_NULL_REASON_CODE },
+        { wimp_REDRAW_WINDOW_REQUEST },
+        { wimp_OPEN_WINDOW_REQUEST },
+        { wimp_CLOSE_WINDOW_REQUEST },
+        { wimp_MOUSE_CLICK },
+        { 0 }
 };
 
 void setIconText(wimp_w w, wimp_i i, char *text);
@@ -414,7 +415,7 @@ void setIconText(wimp_w w, wimp_i i, char *text)
 
 }
 
-void copyIconText(wimp_w w, wimp_i i, char *text, int len)
+static void copyIconText(wimp_w w, wimp_i i, char *text, int len)
 {
   wimp_icon_state istate;
   istate.w = w;
