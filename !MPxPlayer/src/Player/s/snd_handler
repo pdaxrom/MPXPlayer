@@ -1,0 +1,106 @@
+		AREA    |C$$data|, DATA
+snd_params
+		EXPORT	snd_params
+;		ExportVar	snd_params
+;		DCD	snd_handler
+		DCD	0	; startaddress	0
+		DCD	0	; buffersize	4
+		DCD	0	; readpos	8
+		DCD	0	; writepos	12
+		DCD	0	; channels	16
+		DCD	0x100	; amplitude	20
+		DCD	0	; playedsamples	24
+		DCD	0	; flags		28
+		DCD	0	; address	32
+		DCD	0	; args		36
+		DCD	0	; tmp		40
+
+		AREA    |C$$code|, CODE, READONLY
+snd_handler
+		EXPORT  snd_handler
+		push	{sl, fp, ip, lr}
+		mov	fp, r0
+		str	r3, [fp, #40]
+		ldr	r6, [fp, #8]
+		ldr	r7, [fp, #12]
+		ldr	r8, [fp, #4]
+		ldr	r9, [fp]
+		ldr	r5, [fp, #28]
+		tst	r5, #1
+		blne	L_15c
+		subs	r5, r7, r6
+		beq	L_15c
+		addlt	r5, r5, r8
+		sub	r3, r2, r1
+		lsr	r3, r3, #2
+		ldr	sl, [fp, #16]
+		cmp	sl, #2
+		beq	L_ec
+		cmp	r5, r3
+		movlt	r3, r5
+		mov	sl, r3
+L_84		ldr	r0, [r9, r6, lsl #1]
+		lsl	r0, r0, #16
+		orr	r0, r0, r0, lsr #16
+		str	r0, [r1], #4
+		add	r6, r6, #1
+		cmp	r6, r8
+		movge	r6, #0
+		subs	sl, sl, #1
+		bgt	L_84
+		ldr	r0, [fp, #40]
+		and	r0, r0, #7
+		cmp	r0, #1
+		beq	L_cc
+		mov	r0, #0
+L_bc		cmp	r1, r2
+		beq	L_cc
+		str	r0, [r1], #4
+		b	L_bc
+L_cc		ldr	r0, [fp, #28]
+		tst	r0, #2
+		ldmne	sp!, {sl, fp, ip, pc}^
+		ldr	r0, [fp, #24]
+		add	r0, r0, r3
+		str	r0, [fp, #24]
+		str	r6, [fp, #8]
+		ldm	sp!, {sl, fp, ip, pc}^
+L_ec		lsr	r5, r5, #1
+		cmp	r5, r3
+		movlt	r3, r5
+		mov	sl, r3
+L_fc		ldr	r0, [r9, r6, lsl #1]
+		str	r0, [r1], #4
+		add	r6, r6, #2
+		cmp	r6, r8
+		movge	r6, #0
+		subs	sl, sl, #1
+		bgt	L_fc
+		ldr	r0, [fp, #40]
+		and	r0, r0, #7
+		cmp	r0, #1
+		beq	L_13c
+		mov	r0, #0
+L_12c		cmp	r1, r2
+		beq	L_13c
+		str	r0, [r1], #4
+		b	L_12c
+L_13c		ldr	r0, [fp, #28]
+		tst	r0, #2
+		ldmne	sp!, {sl, fp, ip, pc}^
+		ldr	r0, [fp, #24]
+		add	r0, r0, r3
+		str	r0, [fp, #24]
+		str	r6, [fp, #8]
+		ldm	sp!, {sl, fp, ip, pc}^
+L_15c		ldr	r0, [fp, #40]
+		and	r0, r0, #7
+		cmp	r0, #1
+		ldmeq	sp!, {sl, fp, ip, pc}^
+		mov	r0, #0
+L_170		str	r0, [r1], #4
+		cmp	r1, r2
+		blt	L_170
+		ldm	sp!, {sl, fp, ip, pc}^
+
+		END

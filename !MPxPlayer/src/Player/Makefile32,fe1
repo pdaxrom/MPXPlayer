@@ -3,6 +3,7 @@
 # Toolflags:
 CC           = cc
 CCflags      = -Otime -APCS 3/32bit/fpe3 -fah -c -depend !Depend -throwback -IC32: -IOSLib: -I@.^.libFreeAMP
+ObjAsmflags  = -depend !Depend -Stamp -quit -CloseExec
 Linkflags    = -o @.^.^.$@
 
 Files        = o.main o.soundcode
@@ -22,6 +23,7 @@ clean:
 VPATH        = @ @.^
 .SUFFIXES:    .o .c
 .c.o:;        $(CC) $(CCFlags) -o $@ $<
+.s.o:;        $(ASM) $(ObjAsmflags) -from $< -to $@
 
 # Dynamic dependencies:
 o.soundcode: c.soundcode OSLib:oslib.h.os OSLib:oslib.h.types OSLib:oslib.h.oscore32 OSLib:oslib.h.osf32 OSLib:oslib.h.osmodule OSLib:oslib.h.sound h.soundcode

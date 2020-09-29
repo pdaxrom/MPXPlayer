@@ -2,7 +2,9 @@
 
 # Toolflags:
 CC           = cc
+ASM          = objasm
 CCflags      = -Otime -fah -c -depend !Depend -throwback -IC: -IOSLib: -I@.^.libFreeAMP
+ObjAsmflags  = -depend !Depend -Stamp -quit -CloseExec
 Linkflags    = -o @.^.^.$@
 
 Files        = o.main o.soundcode
@@ -20,9 +22,32 @@ clean:
 
 #Rule patterns:
 VPATH        = @ @.^
-.SUFFIXES:    .o .c
+.SUFFIXES:    .o .c .s
 .c.o:;        $(CC) $(CCFlags) -o $@ $<
+.s.o:;        $(ASM) $(ObjAsmflags) -from $< -to $@
 
 # Dynamic dependencies:
-o.soundcode: c.soundcode OSLib:oslib.h.os OSLib:oslib.h.types OSLib:oslib.h.oscore32 OSLib:oslib.h.osf32 OSLib:oslib.h.osmodule OSLib:oslib.h.sound h.soundcode
-o.main: c.main C:h.kernel OSLib:oslib.h.os OSLib:oslib.h.types OSLib:oslib.h.oscore32 OSLib:oslib.h.osf32 OSLib:oslib.h.wimp OSLib:oslib.h.osspriteop OSLib:oslib.h.font OSLib:oslib.h.wimp32 OSLib:oslib.h.dragasprite ^.libFreeAMP.h.mhead ^.libFreeAMP.h.L3 ^.libFreeAMP.h.itype h.soundcode
+o.snd_handler: s.snd_handler
+o.main:	c.main
+o.main:	C:h.kernel
+o.main:	OSLib:oslib.h.os
+o.main:	OSLib:oslib.h.types
+o.main:	OSLib:oslib.h.oscore32
+o.main:	OSLib:oslib.h.osf32
+o.main:	OSLib:oslib.h.wimp
+o.main:	OSLib:oslib.h.osspriteop
+o.main:	OSLib:oslib.h.font
+o.main:	OSLib:oslib.h.wimp32
+o.main:	OSLib:oslib.h.dragasprite
+o.main:	^.libFreeAMP.h.mhead
+o.main:	^.libFreeAMP.h.L3
+o.main:	^.libFreeAMP.h.itype
+o.main:	h.soundcode
+o.soundcode:	c.soundcode
+o.soundcode:	OSLib:oslib.h.os
+o.soundcode:	OSLib:oslib.h.types
+o.soundcode:	OSLib:oslib.h.oscore32
+o.soundcode:	OSLib:oslib.h.osf32
+o.soundcode:	OSLib:oslib.h.osmodule
+o.soundcode:	OSLib:oslib.h.sound
+o.soundcode:	h.soundcode

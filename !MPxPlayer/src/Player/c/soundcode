@@ -7,39 +7,67 @@
 #include "soundcode.h"
 
 static int sound_claimed = 0;
-static int *sound_rma = NULL;
+static unsigned int *sound_rma = NULL;
 static int sound_written = 0;
 static int sound_previoussamplerate;
 static soundcode_memory *sound_parameters;
 static os_dynamic_area_no sound_area = 0;
 
-static int soundcode[SOUNDCODE_SIZE] = {
-                             0x00000030, 0x00000000, 0x00000000, 0x00000000,
-                             0x00000000, 0x00000000, 0x00000100, 0x00000000,
-                             0x00000000, 0x00000000, 0x00000000, 0x00000000,
-                             0xE92D5C00, 0xE1A0B000, 0xE50F3014, 0xE59B6008,
-                             0xE59B700C, 0xE59B8004, 0xE59B9000, 0xE59B501C,
-                             0xE3150001, 0x1B000040, 0xE0575006, 0x0A00003E,
-                             0xB0855008, 0xE0423001, 0xE1A03123, 0xE59BA010,
-                             0xE35A0002, 0x0A00001C, 0xE1550003, 0xB1A03005,
-                             0xE1A0A003, 0xE7990086, 0xE1A00800, 0xE1800820,
-                             0xE4810004, 0xE2866001, 0xE1560008, 0xA3A06000,
-                             0xE25AA001, 0xCAFFFFF6, 0xE51F0084, 0xE2000007,
-                             0xE3500001, 0x0A000004, 0xE3A00000, 0xE1510002,
-                             0x0A000001, 0xE4810004, 0xEAFFFFFB, 0xE59B001C,
-                             0xE3100002, 0x18FD9C00, 0xE59B0018, 0xE0800003,
-                             0xE58B0018, 0xE58B6008, 0xE8FD9C00, 0xE1A050A5,
-                             0xE1550003, 0xB1A03005, 0xE1A0A003, 0xE7990086,
-                             0xE4810004, 0xE2866002, 0xE1560008, 0xA3A06000,
-                             0xE25AA001, 0xCAFFFFF8, 0xE51F00F4, 0xE2000007,
-                             0xE3500001, 0x0A000004, 0xE3A00000, 0xE1510002,
-                             0x0A000001, 0xE4810004, 0xEAFFFFFB, 0xE59B001C,
-                             0xE3100002, 0x18FD9C00, 0xE59B0018, 0xE0800003,
-                             0xE58B0018, 0xE58B6008, 0xE8FD9C00, 0xE51F0138,
-                             0xE2000007, 0xE3500001, 0x08FD9C00, 0xE3A00000,
-                             0xE4810004, 0xE1510002, 0xBAFFFFFC, 0xE8FD9C00,
-                             0x00000000, 0x00000000, 0x00000000, 0x00000000
-                          };
+static unsigned int soundcode[SOUNDCODE_SIZE] = {
+#ifdef __APCS_32
+	0x00000030,0x00000000,0x00000000,0x00000000,
+	0x00000000,0x00000000,0x00000100,0x00000000,
+	0x00000000,0x00000000,0x00000000,0x00000000,
+	0xE92D5C00,0xE1A0B000,0xE50F3014,0xE59B6008,
+	0xE59B700C,0xE59B8004,0xE59B9000,0xE59B501C,
+	0xE3150001,0x1B000040,0xE0575006,0x0A00003E,
+	0xB0855008,0xE0423001,0xE1A03123,0xE59BA010,
+	0xE35A0002,0x0A00001C,0xE1550003,0xB1A03005,
+	0xE1A0A003,0xE7990086,0xE1A00800,0xE1800820,
+	0xE4810004,0xE2866001,0xE1560008,0xA3A06000,
+	0xE25AA001,0xCAFFFFF6,0xE51F0084,0xE2000007,
+	0xE3500001,0x0A000004,0xE3A00000,0xE1510002,
+	0x0A000001,0xE4810004,0xEAFFFFFB,0xE59B001C,
+	0xE3100002,0x18BD9C00,0xE59B0018,0xE0800003,
+	0xE58B0018,0xE58B6008,0xE8BD9C00,0xE1A050A5,
+	0xE1550003,0xB1A03005,0xE1A0A003,0xE7990086,
+	0xE4810004,0xE2866002,0xE1560008,0xA3A06000,
+	0xE25AA001,0xCAFFFFF8,0xE51F00F4,0xE2000007,
+	0xE3500001,0x0A000004,0xE3A00000,0xE1510002,
+	0x0A000001,0xE4810004,0xEAFFFFFB,0xE59B001C,
+	0xE3100002,0x18BD9C00,0xE59B0018,0xE0800003,
+	0xE58B0018,0xE58B6008,0xE8BD9C00,0xE51F0138,
+	0xE2000007,0xE3500001,0x08BD9C00,0xE3A00000,
+	0xE4810004,0xE1510002,0xBAFFFFFC,0xE8BD9C00,
+	0x00000000,0x00000000,0x00000000,0x00000000,
+#else
+	0x00000030, 0x00000000, 0x00000000, 0x00000000,
+	0x00000000, 0x00000000, 0x00000100, 0x00000000,
+	0x00000000, 0x00000000, 0x00000000, 0x00000000,
+	0xE92D5C00, 0xE1A0B000, 0xE50F3014, 0xE59B6008,
+	0xE59B700C, 0xE59B8004, 0xE59B9000, 0xE59B501C,
+	0xE3150001, 0x1B000040, 0xE0575006, 0x0A00003E,
+	0xB0855008, 0xE0423001, 0xE1A03123, 0xE59BA010,
+	0xE35A0002, 0x0A00001C, 0xE1550003, 0xB1A03005,
+	0xE1A0A003, 0xE7990086, 0xE1A00800, 0xE1800820,
+	0xE4810004, 0xE2866001, 0xE1560008, 0xA3A06000,
+	0xE25AA001, 0xCAFFFFF6, 0xE51F0084, 0xE2000007,
+	0xE3500001, 0x0A000004, 0xE3A00000, 0xE1510002,
+	0x0A000001, 0xE4810004, 0xEAFFFFFB, 0xE59B001C,
+	0xE3100002, 0x18FD9C00, 0xE59B0018, 0xE0800003,
+	0xE58B0018, 0xE58B6008, 0xE8FD9C00, 0xE1A050A5,
+	0xE1550003, 0xB1A03005, 0xE1A0A003, 0xE7990086,
+	0xE4810004, 0xE2866002, 0xE1560008, 0xA3A06000,
+	0xE25AA001, 0xCAFFFFF8, 0xE51F00F4, 0xE2000007,
+	0xE3500001, 0x0A000004, 0xE3A00000, 0xE1510002,
+	0x0A000001, 0xE4810004, 0xEAFFFFFB, 0xE59B001C,
+	0xE3100002, 0x18FD9C00, 0xE59B0018, 0xE0800003,
+	0xE58B0018, 0xE58B6008, 0xE8FD9C00, 0xE51F0138,
+	0xE2000007, 0xE3500001, 0x08FD9C00, 0xE3A00000,
+	0xE4810004, 0xE1510002, 0xBAFFFFFC, 0xE8FD9C00,
+	0x00000000, 0x00000000, 0x00000000, 0x00000000
+#endif
+};
 
 /*
 int main(int argc, char *argv[]) {
@@ -137,7 +165,7 @@ int soundcode_play(int freq, int chans) {
   if (xosmodule_alloc(4*SOUNDCODE_SIZE, (void **)&sound_rma))  return -1;
   // copy buffer-fill-code
   for (i = 0; i < SOUNDCODE_SIZE; i++)  sound_rma[i] = soundcode[i];
-  sound_rma[SOUNDCODE_FILLCODE] += (int)sound_rma;
+  sound_rma[SOUNDCODE_FILLCODE] += (unsigned int)sound_rma;
 
   sound_parameters = (soundcode_memory *)&sound_rma[SOUNDCODE_PARAMETERS];
 
@@ -151,6 +179,7 @@ int soundcode_play(int freq, int chans) {
     xosmodule_free((byte *)sound_rma);
     return -1;
   }
+
   buffersize /= 2;  // convert from bytes to samples
 
   // init the parameter-block passed to the buffer-fill-code
@@ -163,7 +192,7 @@ int soundcode_play(int freq, int chans) {
   xsoundsamplerate_read_current(&sound_previoussamplerate, NULL);
   xsoundsamplerate_select(rateindex, NULL, NULL);
 
-  sound_parameters->address = (asm_routine)sound_rma[SOUNDCODE_FILLCODE];
+  sound_parameters->address = (asm_routine) sound_rma[SOUNDCODE_FILLCODE];
   sound_parameters->arg = sound_parameters;
 
   xsound_linear_handler(1, sound_parameters->address, sound_parameters->arg, NULL, NULL);
